@@ -20,30 +20,48 @@ fi
 apt update
 apt install -y wireguard
 
+# If the user hasn't set the WIREGUARD_INTERFACE variable, assume wg0.
+if [ -z $WIREGUARD_INTERFACE ]; then
+    export WIREGUARD_INTERFACE=wg0
+fi
+
+# If the user hasn't set an IP address, assume default.
+if [ -z $WIREGUARD_INTERNAL_IP_PARTIAL ]; then
+    export WIREGUARD_INTERNAL_IP_PARTIAL=10.11.12
+fi
+
+# If the user hasn't set a listen port, assume default.
+if [ -z $WIREGUARD_LISTEN_PORT ]; then
+    export WIREGUARD_LISTEN_PORT=51820
+fi
+
 # Ask the user for the public IP address. If you are using this
 # script in further automation, you can set this variable beforehand.
 if [ -z $ENDPOINT_IP ]; then
     read -p "What is the public IP address of your server? " ENDPOINT_IP
 fi
 
-# Create server keypair
-if [ ! -f /etc/wireguard/server.priv ]; then
-    wg genkey | tee /etc/wireguard/server.priv | wg pubkey > /etc/wireguard/server.pub
+# Create the directory to store interface config files
+mkdir -p /etc/wireguard/$WIREGUARD_INTERFACE
+
+# Create interface keypair
+if [ ! -f /etc/wireguard/$WIREGUARD_INTERFACE/server.priv ]; then
+    wg genkey | tee /etc/wireguard/$WIREGUARD_INTERFACE/server.priv | wg pubkey > /etc/wireguard/$WIREGUARD_INTERFACE/server.pub
 fi
-SERVER_PRIVATE_KEY=$(< /etc/wireguard/server.priv)
-SERVER_PUBLIC_KEY=$(< /etc/wireguard/server.pub)
+SERVER_PRIVATE_KEY=$(< /etc/wireguard/$WIREGUARD_INTERFACE/server.priv)
+SERVER_PUBLIC_KEY=$(< /etc/wireguard/$WIREGUARD_INTERFACE/server.pub)
 
 # Create wireguard config file
-if [ ! -f /etc/wireguard/wg0.conf ]; then
-    cat << EOF > /etc/wireguard/wg0.conf
+if [ ! -f /etc/wireguard/$WIREGUARD_INTERFACE.conf ]; then
+    cat << EOF > /etc/wireguard/$WIREGUARD_INTERFACE.conf
 [Interface]
 PrivateKey = $SERVER_PRIVATE_KEY
-Address = 10.11.12.1/24
-ListenPort = 51820
+Address = $WIREGUARD_INTERNAL_IP_PARTIAL.1/24
+ListenPort = $WIREGUARD_LISTEN_PORT
 
 #Allow forwarding of ports
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ip6tables -A FORWARD -i wg0 -j ACCEPT; ip6tables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT; ip6tables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+PostUp = iptables -A FORWARD -i $WIREGUARD_INTERFACE -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ip6tables -A FORWARD -i $WIREGUARD_INTERFACE -j ACCEPT; ip6tables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i $WIREGUARD_INTERFACE -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE; ip6tables -D FORWARD -i $WIREGUARD_INTERFACE -j ACCEPT; ip6tables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 
 EOF
 fi
@@ -63,34 +81,34 @@ fi
 
 # For each client...
 for i in $(seq 1 $NUMBER_OF_CLIENTS); do
-    if [ ! -f /etc/wireguard/client_$i.priv ]; then
+    if [ ! -f /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.priv ]; then
         # Create a client keypair
-        wg genkey | tee /etc/wireguard/client_$i.priv | wg pubkey > /etc/wireguard/client_$i.pub
+        wg genkey | tee /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.priv | wg pubkey > /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.pub
     fi
-    CLIENT_PRIVATE_KEY=$(< /etc/wireguard/client_$i.priv)
-    CLIENT_PUBLIC_KEY=$(< /etc/wireguard/client_$i.pub)
+    CLIENT_PRIVATE_KEY=$(< /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.priv)
+    CLIENT_PUBLIC_KEY=$(< /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.pub)
 
     # Add the peer information to the server config file
-    if ! grep -q "# Client $i" /etc/wireguard/wg0.conf; then
-        echo "# Client $i" >> /etc/wireguard/wg0.conf
-        echo "[Peer]" >> /etc/wireguard/wg0.conf
-        echo "PublicKey = $CLIENT_PUBLIC_KEY" >> /etc/wireguard/wg0.conf
-        echo "AllowedIPs = 10.11.12.$(($i+1))/32" >> /etc/wireguard/wg0.conf
-        echo "" >> /etc/wireguard/wg0.conf
+    if ! grep -q "# Client $i" /etc/wireguard/$WIREGUARD_INTERFACE.conf; then
+        echo "# Client $i" >> /etc/wireguard/$WIREGUARD_INTERFACE.conf
+        echo "[Peer]" >> /etc/wireguard/$WIREGUARD_INTERFACE.conf
+        echo "PublicKey = $CLIENT_PUBLIC_KEY" >> /etc/wireguard/$WIREGUARD_INTERFACE.conf
+        echo "AllowedIPs = $WIREGUARD_INTERNAL_IP_PARTIAL.$(($i+1))/32" >> /etc/wireguard/$WIREGUARD_INTERFACE.conf
+        echo "" >> /etc/wireguard/$WIREGUARD_INTERFACE.conf
     fi
 
     # Create wireguard config for client
-    if [ ! -f /etc/wireguard/client_$i.conf ]; then
-        echo "[Interface]" >> /etc/wireguard/client_$i.conf
-        echo "PrivateKey = $CLIENT_PRIVATE_KEY" >> /etc/wireguard/client_$i.conf
-        echo "Address = 10.11.12.$(($i+1))/32" >> /etc/wireguard/client_$i.conf
-        echo "" >> /etc/wireguard/client_$i.conf
-        echo "[Peer]" >> /etc/wireguard/client_$i.conf
-        echo "PublicKey = $SERVER_PUBLIC_KEY" >> /etc/wireguard/client_$i.conf
-        echo "AllowedIPs = 10.11.12.0/24" >> /etc/wireguard/client_$i.conf
-        echo "Endpoint = $ENDPOINT_IP:51820" >> /etc/wireguard/client_$i.conf
-        echo "PersistentKeepalive = 15" >> /etc/wireguard/client_$i.conf
-        echo "" >> /etc/wireguard/client_$i.conf
+    if [ ! -f /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf ]; then
+        echo "[Interface]" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "PrivateKey = $CLIENT_PRIVATE_KEY" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "Address = $WIREGUARD_INTERNAL_IP_PARTIAL.$(($i+1))/32" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "[Peer]" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "PublicKey = $SERVER_PUBLIC_KEY" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "AllowedIPs = $WIREGUARD_INTERNAL_IP_PARTIAL.0/24" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "Endpoint = $ENDPOINT_IP:$WIREGUARD_LISTEN_PORT" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "PersistentKeepalive = 15" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
+        echo "" >> /etc/wireguard/$WIREGUARD_INTERFACE/client_$i.conf
     fi
 done
 
@@ -100,8 +118,8 @@ echo 1 > /proc/sys/net/ipv4/ip_forward
 sysctl -w net.ipv4.ip_forward=1
 
 # Start wireguard service
-systemctl start wg-quick@wg0
+systemctl start wg-quick@$WIREGUARD_INTERFACE
 # Enable wireguard service on startup
-systemctl enable wg-quick@wg0
+systemctl enable wg-quick@$WIREGUARD_INTERFACE
 
-echo "Done! You now have a pile of 'client_x.conf' files in /etc/wireguard now."
+echo "Done! You now have a pile of 'client_x.conf' files in /etc/wireguard/$WIREGUARD_INTERFACE now."

@@ -21,8 +21,26 @@ need 4 clients instead of 3, etc.
 
 If you'd like to use this script in further automation/without user prompting,
 you'll need to set the following environment variables:
-* ENDPOINT_IP
-* NUMBER_OF_CLIENTS
+* `ENDPOINT_IP`
+* `NUMBER_OF_CLIENTS`
+
+## Advanced Features
+
+* Set the `WIREGUARD_INTERFACE` variable to set up new/existing Wireguard tunnels.
+  * Example: `export WIREGUARD_INTERFACE=wg1 && /bin/bash install-wireguard.bash`
+  * Default: `wg0`
+  * You can use this to run multiple wireguard tunnels on a single host
+* Set the `WIREGUARD_INTERNAL_IP_PARTIAL` variable to control the IP range of the
+  network created
+  * Example: `export WIREGUARD_INTERNAL_IP_PARTIAL=10.72.72 && /bin/bash install-wireguard.bash`
+  * Default: `10.11.12`
+  * **Note:** The network address will end in `.0`
+  * **Note:** The network defaults to a `/24`
+  * **Note:** The server address will end in `.1`
+* Set the `WIREGUARD_LISTEN_PORT` variable to control what port wireguard will
+  listen for incoming connections on.
+  * Example: `export WIREGUARD_LISTEN_PORT=12345 && /bin/bash install-wireguard.bash`
+  * Default: `51820`
 
 ## License
 
